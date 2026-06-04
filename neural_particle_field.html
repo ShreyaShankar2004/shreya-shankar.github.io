@@ -1,0 +1,285 @@
+<div style="position:relative;width:100%;height:520px;overflow:hidden;border-radius:12px;background:#020812;">
+<canvas id="nc" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
+<div style="position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:16px;z-index:10;">
+  <button onclick="setMode('attract')" id="btn-attract" style="background:rgba(0,245,196,0.12);border:1px solid rgba(0,245,196,0.4);color:#00f5c4;padding:7px 18px;border-radius:6px;font-size:12px;letter-spacing:.08em;cursor:pointer;font-family:monospace;transition:all .2s;">ATTRACT</button>
+  <button onclick="setMode('repel')" id="btn-repel" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.5);padding:7px 18px;border-radius:6px;font-size:12px;letter-spacing:.08em;cursor:pointer;font-family:monospace;transition:all .2s;">REPEL</button>
+  <button onclick="setMode('vortex')" id="btn-vortex" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.5);padding:7px 18px;border-radius:6px;font-size:12px;letter-spacing:.08em;cursor:pointer;font-family:monospace;transition:all .2s;">VORTEX</button>
+  <button onclick="explode()" style="background:rgba(180,79,255,0.12);border:1px solid rgba(180,79,255,0.4);color:#b44fff;padding:7px 18px;border-radius:6px;font-size:12px;letter-spacing:.08em;cursor:pointer;font-family:monospace;transition:all .2s;">PULSE</button>
+</div>
+<div style="position:absolute;top:14px;right:16px;font-family:monospace;font-size:11px;color:rgba(0,245,196,0.4);letter-spacing:.12em;" id="stats">0 nodes</div>
+</div>
+<script>
+(function(){
+const canvas = document.getElementById('nc');
+const ctx = canvas.getContext('2d');
+const statsEl = document.getElementById('stats');
+
+let W, H, dpr;
+function resize(){
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+}
+resize();
+
+let mode = 'attract';
+let mouse = {x: W/2, y: H/2, active: false};
+let frame = 0;
+
+function setMode(m){
+  mode = m;
+  ['attract','repel','vortex'].forEach(id => {
+    const b = document.getElementById('btn-'+id);
+    if(!b) return;
+    if(id === m){
+      b.style.background = id==='vortex' ? 'rgba(0,148,255,0.15)' : 'rgba(0,245,196,0.12)';
+      b.style.borderColor = id==='vortex' ? 'rgba(0,148,255,0.5)' : 'rgba(0,245,196,0.4)';
+      b.style.color = id==='vortex' ? '#0094ff' : '#00f5c4';
+    } else {
+      b.style.background = 'rgba(255,255,255,0.05)';
+      b.style.borderColor = 'rgba(255,255,255,0.15)';
+      b.style.color = 'rgba(255,255,255,0.5)';
+    }
+  });
+}
+
+const N = 130;
+const nodes = [];
+
+for(let i=0;i<N;i++){
+  nodes.push({
+    x: Math.random()*W,
+    y: Math.random()*H,
+    vx: (Math.random()-.5)*0.8,
+    vy: (Math.random()-.5)*0.8,
+    r: 1.5 + Math.random()*2.5,
+    hue: Math.random() < 0.5 ? 0 : Math.random() < 0.5 ? 1 : 2,
+    pulse: Math.random()*Math.PI*2,
+    pulseSpeed: 0.02 + Math.random()*0.03,
+    mass: 0.5 + Math.random()*1.5,
+    trail: [],
+    charge: Math.random() > 0.15 ? 1 : -1
+  });
+}
+
+function colForNode(n, alpha){
+  const p = 0.5 + 0.5*Math.sin(n.pulse);
+  if(n.hue===0) return `rgba(0,${Math.round(200+55*p)},${Math.round(170+26*p)},${alpha})`;
+  if(n.hue===1) return `rgba(0,${Math.round(120+28*p)},255,${alpha})`;
+  return `rgba(${Math.round(160+20*p)},${Math.round(60+19*p)},255,${alpha})`;
+}
+
+function explode(){
+  const cx = mouse.active ? mouse.x : W/2;
+  const cy = mouse.active ? mouse.y : H/2;
+  for(const n of nodes){
+    const dx = n.x-cx, dy = n.y-cy;
+    const d = Math.sqrt(dx*dx+dy*dy)||1;
+    const force = Math.min(800/d, 18);
+    n.vx += (dx/d)*force;
+    n.vy += (dy/d)*force;
+  }
+}
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX-r.left);
+  mouse.y = (e.clientY-r.top);
+  mouse.active = true;
+});
+canvas.addEventListener('mouseleave', () => { mouse.active = false; });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.touches[0].clientX-r.left);
+  mouse.y = (e.touches[0].clientY-r.top);
+  mouse.active = true;
+}, {passive:false});
+
+function draw(){
+  frame++;
+  ctx.fillStyle = 'rgba(2,8,18,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  for(const n of nodes){
+    n.pulse += n.pulseSpeed;
+
+    // Mouse force
+    if(mouse.active){
+      const dx = mouse.x-n.x, dy = mouse.y-n.y;
+      const d2 = dx*dx+dy*dy;
+      const d = Math.sqrt(d2)||1;
+      if(mode==='attract'){
+        const f = Math.min(4000/d2, 3.5) * n.mass;
+        n.vx += (dx/d)*f*0.04;
+        n.vy += (dy/d)*f*0.04;
+      } else if(mode==='repel'){
+        const f = Math.min(5000/d2, 4.0) * n.mass;
+        n.vx -= (dx/d)*f*0.04;
+        n.vy -= (dy/d)*f*0.04;
+      } else if(mode==='vortex'){
+        const f = Math.min(3500/d2, 3.0);
+        n.vx += (-dy/d)*f*0.045;
+        n.vy += (dx/d)*f*0.045;
+      }
+    }
+
+    // Inter-node forces (only nearby)
+    for(let j=nodes.indexOf(n)+1;j<nodes.length;j++){
+      const m = nodes[j];
+      const dx = m.x-n.x, dy = m.y-n.y;
+      const d2 = dx*dx+dy*dy;
+      if(d2>22500) continue; // 150px radius
+      const d = Math.sqrt(d2);
+      // Separation force
+      if(d < 28){
+        const f = (28-d)/28 * 0.6;
+        const nx=dx/d,ny=dy/d;
+        n.vx-=nx*f; n.vy-=ny*f;
+        m.vx+=nx*f; m.vy+=ny*f;
+      }
+    }
+
+    // Damping
+    n.vx *= 0.975; n.vy *= 0.975;
+    // Speed cap
+    const spd = Math.sqrt(n.vx*n.vx+n.vy*n.vy);
+    if(spd>8){ n.vx=(n.vx/spd)*8; n.vy=(n.vy/spd)*8; }
+    // Drift nudge when slow
+    if(spd<0.2){ n.vx+=(Math.random()-.5)*0.15; n.vy+=(Math.random()-.5)*0.15; }
+
+    // Boundary bounce
+    if(n.x<8){n.x=8;n.vx=Math.abs(n.vx);}
+    if(n.x>W-8){n.x=W-8;n.vx=-Math.abs(n.vx);}
+    if(n.y<8){n.y=8;n.vy=Math.abs(n.vy);}
+    if(n.y>H-8){n.y=H-8;n.vy=-Math.abs(n.vy);}
+
+    n.x += n.vx; n.y += n.vy;
+
+    // Trail
+    n.trail.push({x:n.x,y:n.y});
+    if(n.trail.length>12) n.trail.shift();
+  }
+
+  // Draw connections
+  for(let i=0;i<nodes.length;i++){
+    const a = nodes[i];
+    for(let j=i+1;j<nodes.length;j++){
+      const b = nodes[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const d2=dx*dx+dy*dy;
+      if(d2>14400) continue; // 120px
+      const d=Math.sqrt(d2);
+      const alpha=(1-d/120)*0.45;
+      const p = 0.5+0.5*Math.sin((a.pulse+b.pulse)*0.5);
+      const r=Math.round(p*30), g=Math.round(80+p*100), bl=Math.round(180+p*75);
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle=`rgba(${r},${g},${bl},${alpha})`;
+      ctx.lineWidth = alpha*1.8;
+      ctx.stroke();
+    }
+  }
+
+  // Draw mouse connections
+  if(mouse.active){
+    for(const n of nodes){
+      const dx=n.x-mouse.x, dy=n.y-mouse.y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d>130) continue;
+      const alpha=(1-d/130)*0.65;
+      ctx.beginPath();
+      ctx.moveTo(mouse.x,mouse.y);
+      ctx.lineTo(n.x,n.y);
+      ctx.strokeStyle=mode==='vortex'?`rgba(0,148,255,${alpha})`:
+                      mode==='repel'?`rgba(180,79,255,${alpha})`:`rgba(0,245,196,${alpha})`;
+      ctx.lineWidth=alpha*2.2;
+      ctx.stroke();
+    }
+  }
+
+  // Draw trails
+  for(const n of nodes){
+    if(n.trail.length<2) continue;
+    ctx.beginPath();
+    ctx.moveTo(n.trail[0].x,n.trail[0].y);
+    for(let t=1;t<n.trail.length;t++) ctx.lineTo(n.trail[t].x,n.trail[t].y);
+    ctx.strokeStyle=colForNode(n,0.18);
+    ctx.lineWidth=n.r*0.6;
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  for(const n of nodes){
+    const glow = 0.6+0.4*Math.sin(n.pulse);
+    const r = n.r*(0.85+0.3*glow);
+
+    // Outer glow ring
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,r*3.5,0,Math.PI*2);
+    ctx.fillStyle=colForNode(n,0.07*glow);
+    ctx.fill();
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,r,0,Math.PI*2);
+    ctx.fillStyle=colForNode(n,0.9);
+    ctx.fill();
+
+    // Bright centre
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,r*0.45,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${0.5*glow})`;
+    ctx.fill();
+  }
+
+  // Mouse cursor orb
+  if(mouse.active){
+    const t=frame*0.04;
+    const orbR = mode==='repel'?22:mode==='vortex'?18:16;
+    const col=mode==='vortex'?'0,148,255':mode==='repel'?'180,79,255':'0,245,196';
+    ctx.beginPath();
+    ctx.arc(mouse.x,mouse.y,orbR+4*Math.sin(t),0,Math.PI*2);
+    ctx.strokeStyle=`rgba(${col},0.35)`;
+    ctx.lineWidth=1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(mouse.x,mouse.y,orbR*0.45,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${col},0.9)`;
+    ctx.fill();
+    // Rotating ring
+    ctx.save();
+    ctx.translate(mouse.x,mouse.y);
+    ctx.rotate(t*1.5);
+    for(let i=0;i<6;i++){
+      const a=i/6*Math.PI*2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a)*(orbR+2),Math.sin(a)*(orbR+2),1.8,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${col},${0.4+0.4*Math.sin(t+i)})`;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Pulse wave animation on explode tracking
+  if(frame%180===0 && !mouse.active){
+    const cx=Math.random()*W, cy=Math.random()*H;
+    for(const n of nodes){
+      const dx=n.x-cx,dy=n.y-cy,d=Math.sqrt(dx*dx+dy*dy)||1;
+      if(d<200){ n.vx+=(dx/d)*(200-d)*0.008; n.vy+=(dy/d)*(200-d)*0.008; }
+    }
+  }
+
+  if(frame%30===0) statsEl.textContent = `${N} nodes · ${mode}`;
+
+  requestAnimationFrame(draw);
+}
+
+window.setMode = setMode;
+window.explode = explode;
+setTimeout(draw, 50);
+})();
+</script>
